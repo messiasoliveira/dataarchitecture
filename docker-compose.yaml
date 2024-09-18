@@ -1,0 +1,127 @@
+version: '3.8'
+services:
+  minio:
+    container_name: minio
+    image: "minio/minio:RELEASE.2021-10-13T00-23-17Z"
+    volumes:
+      - minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - my_docker
+    environment:
+      MINIO_ACCESS_KEY: "root"
+      MINIO_SECRET_KEY: "root12345"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+  es:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.9.0
+    container_name: es
+    environment:
+      - node.name=es
+      - cluster.name=es-docker-single
+      - discovery.seed_hosts=es
+      - cluster.initial_master_nodes=es
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - elastic
+  kib:
+    image: docker.elastic.co/kibana/kibana:7.9.0
+    depends_on:
+      - es
+    container_name: kib
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://es:9200
+      ELASTICSEARCH_HOSTS: http://es:9200
+    networks:
+      - elastic
+  zookeeper:
+    image: zookeeper:3.6.1
+    container_name: zookeeper
+    expose:
+      - "2181"
+    volumes:
+      - kafka_zookeeper:/opt/zookeeper-3.6.1/data
+    networks:
+      kafkanet:
+        ipv4_address: 172.25.0.11
+  kafka1:
+    image: wurstmeister/kafka:2.12-2.2.0
+    container_name: kafka1
+    command: [start-kafka.sh]
+    expose:
+      - "8080"
+      - "9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: 172.25.0.12
+      KAFKA_ZOOKEEPER_CONNECT: 172.25.0.11:2181
+      KAFKA_ADVERTISED_PORT: 9092
+    volumes:
+      - kafka_kafka1:/opt/kafka_2.12-2.2.0/logs
+    networks:
+      kafkanet:
+        ipv4_address: 172.25.0.12
+    depends_on:
+      - "zookeeper"
+  kafka2:
+    image: wurstmeister/kafka:2.12-2.2.0
+    container_name: kafka2
+    command: [start-kafka.sh]
+    expose:
+      - "8080"
+      - "9092"
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: 172.25.0.13
+      KAFKA_ZOOKEEPER_CONNECT: 172.25.0.11:2181
+      KAFKA_ADVERTISED_PORT: 9092
+    volumes:
+      - kafka_kafka2:/opt/kafka_2.12-2.2.0/logs
+    depends_on:
+      - "zookeeper"
+    networks:
+      kafkanet:
+        ipv4_address: 172.25.0.13
+
+  spark:
+    image: gettyimages/spark:2.4.1-hadoop-3.0
+    container_name: spark
+    volumes:
+      - ./:/app
+    networks:
+      kafkanet:
+        ipv4_address: 172.25.0.14
+volumes:
+  kafka_zookeeper:
+  kafka_kafka1:
+  kafka_kafka2:
+  minio:
+  data:
+    driver: local
+networks:
+  my_docker:
+    driver: bridge
+  elastic:
+    driver: bridge
+  kafkanet:
+    name: kafkanet
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.0.0/16
