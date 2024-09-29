@@ -1,0 +1,9 @@
+sudo wget https://dlcdn.apache.org/zeppelin/zeppelin-0.11.0/zeppelin-0.11.0-bin-all.tgz --no-check-certificate
+sudo tar zxvf zeppelin-0.11.0-bin-all.tgz 
+sudo mv zeppelin-0.11.0-bin-all /opt/zeppelin
+sudo cp /opt/zeppelin/conf/zeppelin-env.sh.template /opt/zeppelin/conf/zeppelin-env.sh
+export JAVA_HOME=/usr/lib/jvm/jre/
+export ZEPPELIN_ADDR=0.0.0.0
+export SPARK_HOME=/opt/spark/spark-3.5.0-bin-hadoop3
+sudo /opt/zeppelin/bin/zeppelin-daemon.sh start
+sudo /opt/zeppelin/bin/zeppelin-daemon.sh status

@@ -1,0 +1,286 @@
+version: '3.8'
+
+services:
+  minio:
+    hostname: minio
+    container_name: minio
+    image: "minio/minio:RELEASE.2021-10-13T00-23-17Z"
+    volumes:
+      - minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - my_docker
+    environment:
+      MINIO_ACCESS_KEY: "root"
+      MINIO_SECRET_KEY: "root12345"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+  es:
+    hostname: es
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.9.0
+    container_name: es
+    environment:
+      - node.name=es
+      - cluster.name=es-docker-single
+      - discovery.seed_hosts=es
+      - cluster.initial_master_nodes=es
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1024m -Xmx1024m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - data:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+    networks:
+      - elastic
+  kib:
+    hostname: kib
+    image: docker.elastic.co/kibana/kibana:7.9.0
+    depends_on:
+      - es
+    container_name: kib
+    ports:
+      - 5601:5601
+    environment:
+      ELASTICSEARCH_URL: http://es:9200
+      ELASTICSEARCH_HOSTS: http://es:9200
+    networks:
+      - elastic
+  zookeeper:
+    hostname: zookeeper
+    image: zookeeper:3.6.1
+    container_name: zookeeper
+    expose:
+      - "2181"
+    volumes:
+      - kafka_zookeeper:/opt/zookeeper-3.6.1/data
+    networks:
+      kafkanet:
+        ipv4_address: 172.25.0.11
+    depends_on:
+      - "namenode"
+  kafka1:
+    image: wurstmeister/kafka:2.12-2.2.0
+    container_name: kafka1
+    hostname: kafka1
+    expose:
+      - "8080"  # Expose port 8080 (optional, for potential Kafka UI access)
+      - "9092"
+    # command: [ "/usr/local/bin/run-kafka.sh" ]
+    environment:
+      KAFKA_ADVERTISED_HOST_NAME: 172.25.0.12
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181  # Connect to Zookeeper on network
+      KAFKA_ADVERTISED_PORT: 9092
+    volumes:
+      - kafka_kafka1:/opt/kafka_2.12-2.2.0/logs  # Persist Kafka logs
+    networks:
+      kafkanet:
+        ipv4_address: 172.25.0.12
+    depends_on:
+      - zookeeper
+    #entrypoint: [ "docker-entrypoint.sh" ]
+
+  # kafka2:
+  #   hostname: kafka2
+  #   image: wurstmeister/kafka:2.12-2.2.0
+  #   container_name: kafka2
+  #   command: [ start-kafka.sh, run-kafka.sh ]
+  #   expose:
+  #     - "8080"
+  #     - "9092"
+  #   environment:
+  #     KAFKA_ADVERTISED_HOST_NAME: 172.25.0.13
+  #     KAFKA_ZOOKEEPER_CONNECT: 172.25.0.11:2181
+  #     KAFKA_ADVERTISED_PORT: 9092
+  #   volumes:
+  #     - kafka_kafka2:/opt/kafka_2.12-2.2.0/logs
+  #   depends_on:
+  #     - "zookeeper"
+  #   networks:
+  #     kafkanet:
+  #       ipv4_address: 172.25.0.13
+  firefox:
+    image: jlesage/firefox
+    hostname: firefox
+    expose:
+      - "5800"
+    networks:
+      - my_docker
+    ports:
+      - 5800:5800
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    restart: always
+    ports:
+      - 9870:9870
+      - 9010:9000
+    networks:
+      - my_docker
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    env_file:
+      - ./hadoop.env
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    restart: always
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    networks:
+      - my_docker
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+      CORE_CONF_fs_defaultFS: hdfs://namenode:9000
+    ports:
+      - "9864:9864"
+    env_file:
+      - ./hadoop.env
+
+  resourcemanager:
+    image: bde2020/hadoop-resourcemanager:2.0.0-hadoop3.2.1-java8
+    container_name: resourcemanager
+    restart: always
+    networks:
+      - my_docker
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864"
+    env_file:
+      - ./hadoop.env
+
+  nodemanager1:
+    image: bde2020/hadoop-nodemanager:2.0.0-hadoop3.2.1-java8
+    container_name: nodemanager
+    restart: always
+    networks:
+      - my_docker
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
+    env_file:
+      - ./hadoop.env
+
+  historyserver:
+    image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
+    container_name: historyserver
+    restart: always
+    networks:
+      - my_docker
+    environment:
+      SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
+    volumes:
+      - hadoop_historyserver:/hadoop/yarn/timeline
+    env_file:
+      - ./hadoop.env
+
+  spark-master:
+    image: bde2020/spark-master:3.0.0-hadoop3.2
+    container_name: spark-master
+    depends_on:
+      - namenode
+      - datanode
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    networks:
+      - my_docker
+    environment:
+      - INIT_DAEMON_STEP=setup_spark
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+
+  spark-worker-1:
+    image: bde2020/spark-worker:3.0.0-hadoop3.2
+    container_name: spark-worker-1
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"
+    networks:
+      - my_docker
+    environment:
+      - "SPARK_MASTER=spark://spark-master:7077"
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-server
+    depends_on:
+      - namenode
+      - datanode
+    env_file:
+      - ./hadoop-hive.env
+    networks:
+      - my_docker
+    environment:
+      HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://hive-metastore/metastore"
+      SERVICE_PRECONDITION: "hive-metastore:9083"
+    ports:
+      - "10000:10000"
+
+  hive-metastore:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-metastore
+    networks:
+      - my_docker
+    env_file:
+      - ./hadoop-hive.env
+    command: /opt/hive/bin/hive --service metastore
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870 datanode:9864 hive-metastore-postgresql:5432"
+    ports:
+      - "9083:9083"
+
+  hive-metastore-postgresql:
+    image: bde2020/hive-metastore-postgresql:2.3.0
+    container_name: hive-metastore-postgresql
+    networks:
+      - my_docker
+
+  presto-coordinator:
+    image: shawnzhu/prestodb:0.181
+    container_name: presto-coordinator
+    networks:
+      - my_docker
+    ports:
+      - "8089:8089"
+volumes:
+  kafka_zookeeper:
+  kafka_kafka1:
+  kafka_kafka2:
+  hadoop_namenode:
+  hadoop_datanode:
+  hadoop_historyserver:
+  minio:
+  data:
+    driver: local
+networks:
+  my_docker:
+    driver: bridge
+  elastic:
+    driver: bridge
+  kafkanet:
+    name: kafkanet
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.0.0/16
+  hadoopnet:
+    name: hadoopnet
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.24.0.0/16
