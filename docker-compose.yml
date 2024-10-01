@@ -1,26 +1,6 @@
 version: '3.8'
 
 services:
-  minio:
-    hostname: minio
-    container_name: minio
-    image: "minio/minio:RELEASE.2021-10-13T00-23-17Z"
-    volumes:
-      - minio:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    networks:
-      - my_docker
-    environment:
-      MINIO_ACCESS_KEY: "root"
-      MINIO_SECRET_KEY: "root12345"
-    command: server /data --console-address ":9001"
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
   es:
     hostname: es
     image: docker.elastic.co/elasticsearch/elasticsearch:7.9.0
@@ -41,7 +21,8 @@ services:
     ports:
       - 9200:9200
     networks:
-      - elastic
+      kafkanet:
+        ipv4_address: 172.25.0.25
   kib:
     hostname: kib
     image: docker.elastic.co/kibana/kibana:7.9.0
@@ -54,7 +35,8 @@ services:
       ELASTICSEARCH_URL: http://es:9200
       ELASTICSEARCH_HOSTS: http://es:9200
     networks:
-      - elastic
+      kafkanet:
+        ipv4_address: 172.25.0.26
   zookeeper:
     hostname: zookeeper
     image: zookeeper:3.6.1
@@ -108,15 +90,6 @@ services:
   #   networks:
   #     kafkanet:
   #       ipv4_address: 172.25.0.13
-  firefox:
-    image: jlesage/firefox
-    hostname: firefox
-    expose:
-      - "5800"
-    networks:
-      - my_docker
-    ports:
-      - 5800:5800
   namenode:
     image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
     container_name: namenode
@@ -125,7 +98,8 @@ services:
       - 9870:9870
       - 9010:9000
     networks:
-      - my_docker
+      kafkanet:
+        ipv4_address: 172.25.0.27
     volumes:
       - hadoop_namenode:/hadoop/dfs/name
     environment:
@@ -141,7 +115,8 @@ services:
     volumes:
       - hadoop_datanode:/hadoop/dfs/data
     networks:
-      - my_docker
+      kafkanet:
+        ipv4_address: 172.25.0.28
     environment:
       SERVICE_PRECONDITION: "namenode:9870"
       CORE_CONF_fs_defaultFS: hdfs://namenode:9000
@@ -155,7 +130,8 @@ services:
     container_name: resourcemanager
     restart: always
     networks:
-      - my_docker
+      kafkanet:
+        ipv4_address: 172.25.0.29
     environment:
       SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864"
     env_file:
@@ -166,7 +142,8 @@ services:
     container_name: nodemanager
     restart: always
     networks:
-      - my_docker
+      kafkanet:
+        ipv4_address: 172.25.0.30
     environment:
       SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
     env_file:
@@ -177,7 +154,8 @@ services:
     container_name: historyserver
     restart: always
     networks:
-      - my_docker
+      kafkanet:
+        ipv4_address: 172.25.0.31
     environment:
       SERVICE_PRECONDITION: "namenode:9000 namenode:9870 datanode:9864 resourcemanager:8088"
     volumes:
@@ -201,7 +179,8 @@ services:
       - '8080:8080'
       - '7077:7077'
     networks:
-      - spark
+      kafkanet:
+        ipv4_address: 172.25.0.32
 
   spark-worker:
     image: docker.io/bitnami/spark:2
@@ -221,7 +200,8 @@ services:
     ports:
       - '8081:8081'
     networks:
-      - spark
+      kafkanet:
+        ipv4_address: 172.25.0.33
     depends_on:
       - spark-master
 
@@ -241,7 +221,8 @@ services:
     ports:
       - '8998:8998'
     networks:
-      - spark
+      kafkanet:
+        ipv4_address: 172.25.0.34
     depends_on:
       - spark-master
       - spark-worker
@@ -258,7 +239,8 @@ services:
       - 8888:8888
     container_name: jupyter_notebook
     networks:
-      - my_docker
+      kafkanet:
+        ipv4_address: 172.25.0.35
     command: "start-notebook.sh --NotebookApp.token="
 volumes:
   kafka_zookeeper:
@@ -271,6 +253,8 @@ volumes:
   data:
     driver: local
 networks:
+  spark:
+    driver: bridge
   my_docker:
     driver: bridge
   elastic:
