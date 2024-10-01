@@ -235,6 +235,7 @@ services:
       - ./work:/home/jovyan/work
     environment:
       - PYDEVD_DISABLE_FILE_VALIDATION=1
+      - JAVA_HOME=/home/jovyan/work/openlogic-openjdk-8u422-b05-linux-x32.jar
     ports:
       - 8888:8888
     container_name: jupyter_notebook
